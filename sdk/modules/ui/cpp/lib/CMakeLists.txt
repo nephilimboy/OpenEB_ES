@@ -12,7 +12,7 @@ set(OpenGL_GL_PREFERENCE GLVND)
 find_package(OpenGL REQUIRED)
 
 # GLEW
-find_package(GLEW REQUIRED)
+#find_package(GLEW REQUIRED)
 
 # GLFW
 find_package(glfw3 REQUIRED)

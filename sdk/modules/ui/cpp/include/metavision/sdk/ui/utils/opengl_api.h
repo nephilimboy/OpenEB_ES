@@ -12,15 +12,15 @@
 #ifndef METAVISION_SDK_UI_UTILS_OPENGL_API
 #define METAVISION_SDK_UI_UTILS_OPENGL_API
 
-#ifdef _USE_OPENGL_ES3_
+//#ifdef _USE_OPENGL_ES3_
 #include <GLES3/gl3.h>
-#elif defined(__APPLE__) && !defined(__linux__)
-#define GL_SILENCE_DEPRECATION
-#include <OpenGL/gl3.h>
-#else
-#include <GL/glew.h>
-#include <GL/gl.h>
-#endif
+//#elif defined(__APPLE__) && !defined(__linux__)
+//#define GL_SILENCE_DEPRECATION
+//#include <OpenGL/gl3.h>
+//#else
+//#include <GL/glew.h>
+//#include <GL/gl.h>
+//#endif
 
 // GLFW needs to be included after OpenGL
 #include <GLFW/glfw3.h>
