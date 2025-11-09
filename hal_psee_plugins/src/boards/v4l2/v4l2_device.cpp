@@ -27,67 +27,216 @@
 
 using namespace Metavision;
 
-void Metavision::raise_error(const std::string &str) {
-    throw std::runtime_error(str + " (" + std::to_string(errno) + " - " + std::strerror(errno) + ")");
-}
-
 V4L2DeviceControl::V4L2DeviceControl(const std::string &devpath) {
     struct stat st;
-    if (-1 == stat(devpath.c_str(), &st))
-        raise_error(devpath + "Cannot identify device.");
+    if (-1 == stat(devpath.c_str(), &st)) {
+        throw HalConnectionException(errno, std::generic_category(), devpath + "Cannot identify device.");
+    }
 
-    if (!S_ISCHR(st.st_mode))
-        throw std::runtime_error(devpath + " is not a device");
+    if (!S_ISCHR(st.st_mode)) {
+        throw HalConnectionException(ENODEV, std::generic_category(), devpath + " is not a device");
+    }
 
     media_fd_ = open(devpath.c_str(), O_RDWR | O_NONBLOCK, 0);
     if (-1 == media_fd_) {
-        raise_error(devpath + "Cannot open media device");
+        throw HalConnectionException(errno, std::generic_category(), devpath + "Cannot open media device");
     }
 
     enumerate_entities();
 
     auto video_ent = get_video_entity();
-    if (video_ent == nullptr) {
-        throw std::runtime_error("Could not find a v4l2 video device");
-    }
 
     if (ioctl(video_ent->fd, VIDIOC_QUERYCAP, &cap_)) {
-        if (EINVAL == errno) {
-            throw std::runtime_error(devpath + " is not a V4L2 device");
-        } else {
-            raise_error("VIDIOC_QUERYCAP failed");
-        }
+        throw HalConnectionException(errno, std::generic_category(), "VIDIOC_QUERYCAP failed");
     }
 
-    if (!(cap_.capabilities & V4L2_CAP_VIDEO_CAPTURE))
-        throw std::runtime_error(devpath + " is not video capture device");
+    if (cap_.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) {
+        buf_type_ = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    } else if (cap_.capabilities & V4L2_CAP_VIDEO_CAPTURE) {
+        buf_type_ = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    } else {
+        throw HalConnectionException(ENOTSUP, std::generic_category(), devpath + " is not video capture device");
+    }
 
-    if (!(cap_.capabilities & V4L2_CAP_STREAMING))
-        throw std::runtime_error(devpath + " does not support streaming i/o");
-
-    auto sensor_ent = get_sensor_entity();
-    if (sensor_ent == nullptr) {
-        throw std::runtime_error("Could not find a v4l2 sensor subdevice");
+    if (!(cap_.capabilities & V4L2_CAP_STREAMING)) {
+        throw HalConnectionException(ENOTSUP, std::generic_category(), devpath + " does not support streaming i/o");
     }
 
     // only expose sensor controls for now
-    controls_ = std::make_shared<V4L2Controls>(sensor_ent->fd);
+    controls_ = std::make_shared<V4L2Controls>(get_sensor_entity()->fd);
     // Note: this code expects the V4L2 device to be configured to output a supported format
+}
+
+StreamFormat V4L2DeviceControl::get_format() const {
+    uint32_t width, height;
+    struct v4l2_format fmt = {.type = buf_type_};
+    struct v4l2_subdev_selection crop_bound {
+        .which = V4L2_SUBDEV_FORMAT_ACTIVE, .pad = 0, .target = V4L2_SEL_TGT_CROP_BOUNDS,
+    };
+
+    if (ioctl(get_video_entity()->fd, VIDIOC_G_FMT, &fmt) < 0) {
+        throw HalConnectionException(errno, std::generic_category(), "VIDIOC_G_FMT failed");
+    }
+
+    /* v4l2_pix_format_mplane and v4l2_pix_format both start with
+     * width, height, pixelformat
+     * thus we can disregard the actual fmt.type
+     */
+    if (ioctl(get_sensor_entity()->fd, VIDIOC_SUBDEV_G_SELECTION, &crop_bound) < 0) {
+        MV_HAL_LOG_TRACE() << "Could not get CROP_BOUND selection, using V4L2 format";
+        width  = fmt.fmt.pix.width;
+        height = fmt.fmt.pix.height;
+    } else {
+        /* V4L2 format is likely to be derived from media pad information, but, with
+         * an event-based sensor, the packetization on streaming interfaces, such as
+         * MIPI CSI-2, is independant from the sensor resolution. Since there should
+         * be no event outside the crop bounds, processing should also happen within
+         * those bounds
+         */
+        width  = crop_bound.r.width;
+        height = crop_bound.r.height;
+    }
+
+    switch (fmt.fmt.pix.pixelformat) {
+    case v4l2_fourcc('P', 'S', 'E', 'E'): {
+        StreamFormat format("EVT2");
+        format["width"]  = std::to_string(width);
+        format["height"] = std::to_string(height);
+        return format.to_string();
+    }
+    case v4l2_fourcc('P', 'S', 'E', '1'): {
+        StreamFormat format("EVT21");
+        format["endianness"] = "legacy";
+        format["width"]      = std::to_string(width);
+        format["height"]     = std::to_string(height);
+        return format.to_string();
+    }
+    case v4l2_fourcc('P', 'S', 'E', '2'): {
+        StreamFormat format("EVT21");
+        format["width"]  = std::to_string(width);
+        format["height"] = std::to_string(height);
+        return format;
+    }
+    case v4l2_fourcc('P', 'S', 'E', '3'): {
+        StreamFormat format("EVT3");
+        format["width"]  = std::to_string(width);
+        format["height"] = std::to_string(height);
+        return format;
+    }
+    case v4l2_fourcc('G', 'R', 'E', 'Y'): {
+        // evt format is supplied as user ctrl
+        if(controls_->has("evt_format"))
+        {
+            auto& ctrl = controls_->get("evt_format");
+            auto evtf = *ctrl.get_str();
+            bool is_legacy = evtf == "EVT21ME";
+
+            if(is_legacy)
+                evtf = "EVT21";
+
+            StreamFormat format(evtf);
+            if(is_legacy)
+                format["endianness"] = "legacy";
+
+            format["width"]  = std::to_string(width);
+            format["height"] = std::to_string(height);
+            return format.to_string();
+        }
+        else
+            throw std::runtime_error("Unsupported pixel format");
+    }
+    default:
+        throw std::runtime_error("Unsupported pixel format");
+    }
 }
 
 V4l2Capability V4L2DeviceControl::get_capability() const {
     return cap_;
 }
 
+const struct media_entity *V4L2DeviceControl::get_sensor_entity() const {
+    auto sensor = std::find_if(entities_.begin(), entities_.end(),
+                               [](const auto &entity) { return entity.type == MEDIA_ENT_T_V4L2_SUBDEV_SENSOR; });
+
+    if (sensor == entities_.end()) {
+        throw HalConnectionException(ENODEV, std::generic_category(), "Could not find a v4l2 sensor subdevice");
+    }
+
+    return &(*sensor);
+}
+
+const struct media_entity *V4L2DeviceControl::get_video_entity() const {
+    auto video = std::find_if(entities_.begin(), entities_.end(),
+                              [](const auto &entity) { return entity.type == MEDIA_ENT_T_DEVNODE_V4L; });
+
+    if (video == entities_.end()) {
+        throw HalConnectionException(ENODEV, std::generic_category(), "Could not find a v4l2 video device");
+    }
+
+    return &(*video);
+}
+
+bool V4L2DeviceControl::can_crop(int fd) {
+    struct v4l2_subdev_selection sel = {0};
+
+    sel.which  = V4L2_SUBDEV_FORMAT_ACTIVE;
+    sel.pad    = 0;
+    sel.target = V4L2_SEL_TGT_CROP_ACTIVE;
+    if (ioctl(fd, VIDIOC_SUBDEV_G_CROP, &sel) == -EINVAL) {
+        MV_HAL_LOG_TRACE() << "device can't crop";
+        return false;
+    }
+    return true;
+}
+
+void V4L2DeviceControl::set_crop(int fd, const struct v4l2_rect &rect) {
+    struct v4l2_subdev_selection sel = {0};
+
+    sel.pad    = 0;
+    sel.which  = V4L2_SUBDEV_FORMAT_ACTIVE;
+    sel.target = V4L2_SEL_TGT_CROP;
+    sel.r      = rect;
+    if (ioctl(fd, VIDIOC_SUBDEV_S_SELECTION, &sel) < 0) {
+        throw HalConnectionException(errno, std::generic_category(), "VIDIOC_SUBDEV_S_SELECTION failed");
+    }
+}
+
+void V4L2DeviceControl::get_native_size(int fd, struct v4l2_rect &rect) {
+    struct v4l2_subdev_selection sel = {0};
+
+    sel.pad    = 0;
+    sel.which  = V4L2_SUBDEV_FORMAT_ACTIVE;
+    sel.target = V4L2_SEL_TGT_NATIVE_SIZE;
+    if (ioctl(fd, VIDIOC_SUBDEV_G_SELECTION, &sel) < 0) {
+        throw HalConnectionException(errno, std::generic_category(), "VIDIOC_SUBDEV_G_SELECTION failed");
+    }
+    rect = sel.r;
+}
+
+void V4L2DeviceControl::get_crop(int fd, struct v4l2_rect &rect) {
+    struct v4l2_subdev_selection sel = {0};
+
+    std::memset(&sel, 0, sizeof(sel));
+    sel.pad    = 0;
+    sel.which  = V4L2_SUBDEV_FORMAT_ACTIVE;
+    sel.target = V4L2_SEL_TGT_CROP;
+    if (ioctl(fd, VIDIOC_SUBDEV_G_SELECTION, &sel) < 0) {
+        throw HalConnectionException(errno, std::generic_category(), "VIDIOC_SUBDEV_G_SELECTION failed");
+    }
+    rect = sel.r;
+}
+
 void V4L2DeviceControl::start() {
-    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (ioctl(get_video_entity()->fd, VIDIOC_STREAMON, &type))
-        raise_error("VIDIOC_STREAMON failed");
+    enum v4l2_buf_type type = buf_type_;
+    if (ioctl(get_video_entity()->fd, VIDIOC_STREAMON, &type) < 0) {
+        throw HalConnectionException(errno, std::generic_category(), "VIDIOC_STREAMON failed");
+    }
 }
 void V4L2DeviceControl::stop() {
-    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (ioctl(get_video_entity()->fd, VIDIOC_STREAMOFF, &type))
-        raise_error("VIDIOC_STREAMOFF failed");
+    enum v4l2_buf_type type = buf_type_;
+    if (ioctl(get_video_entity()->fd, VIDIOC_STREAMOFF, &type) < 0) {
+        throw HalConnectionException(errno, std::generic_category(), "VIDIOC_STREAMOFF failed");
+    }
 }
 void V4L2DeviceControl::reset() {}
 

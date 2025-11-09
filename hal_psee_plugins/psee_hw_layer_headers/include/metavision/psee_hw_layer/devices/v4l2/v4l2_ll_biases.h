@@ -17,17 +17,20 @@
 #include <vector>
 
 #include "metavision/hal/facilities/i_ll_biases.h"
+#include "metavision/hal/facilities/i_hw_identification.h"
 #include "metavision/psee_hw_layer/devices/common/bias_settings.h"
 #include "metavision/psee_hw_layer/boards/v4l2/v4l2_controls.h"
 
 namespace Metavision {
 
 class RegisterMap;
+class I_HW_Identification;
 class V4L2Controls;
 
 class V4L2LLBiases : public I_LL_Biases {
 public:
-    V4L2LLBiases(const DeviceConfig &device_config, std::shared_ptr<V4L2Controls> controls, bool relative = false);
+    V4L2LLBiases(const DeviceConfig &device_config, const std::shared_ptr<I_HW_Identification> &hw_identification, 
+                 std::shared_ptr<V4L2Controls> controls, bool relative = false);
 
     virtual std::map<std::string, int> get_all_biases() const override;
 
@@ -57,8 +60,10 @@ private:
     virtual bool get_bias_info_impl(const std::string &bias_name, LL_Bias_Info &info) const override;
 
     std::shared_ptr<RegisterMap> register_map_;
+    std::shared_ptr<I_HW_Identification> hw_identification_;
     int fd_;
     bool relative_;
+    int bias_bitwidth_;
 };
 
 } // namespace Metavision

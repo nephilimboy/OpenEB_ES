@@ -36,6 +36,7 @@ V4L2BoardCommand::V4L2BoardCommand(std::string device_path) {
     struct stat st;
     device_ = std::make_shared<V4L2DeviceControl>(device_path);
     sensor_fd_ = device_->get_sensor_entity()->fd;
+    serial = device_->get_sensor_entity()->desc.name;
 }
 
 V4L2BoardCommand::~V4L2BoardCommand() {}
@@ -69,7 +70,7 @@ std::string V4L2BoardCommand::get_serial() {
     // TODO: get serial number from media_device,
     // see https://www.kernel.org/doc/html/v4.9/media/uapi/mediactl/media-ioc-device-info.html
     // Not available yet with Thor96 setup
-    return "v4l2_device";
+    return serial;
 }
 
 // TODO: keep it internal in tz (libusb) board command, and expose generic
@@ -133,10 +134,10 @@ std::unique_ptr<DataTransfer::RawDataProducer>
 
     // If the environment set a heap, us it, otherwise, use the driver's allocator
     if (std::getenv("V4L2_HEAP"))
-        return std::make_unique<V4l2DataTransfer>(device_->get_video_entity()->fd, raw_event_size_bytes, "/dev/dma_heap",
+        return std::make_unique<V4l2DataTransfer>(device_->get_video_entity()->fd, device_->get_format(), raw_event_size_bytes, "/dev/dma_heap",
                                                   std::getenv("V4L2_HEAP"));
     else
-        return std::make_unique<V4l2DataTransfer>(device_->get_video_entity()->fd, raw_event_size_bytes);
+        return std::make_unique<V4l2DataTransfer>(device_->get_video_entity()->fd, device_->get_format(), raw_event_size_bytes);
 }
 
 } // namespace Metavision

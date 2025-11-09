@@ -26,9 +26,10 @@
 
 #include <cstring>
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <unordered_set>
+
+#include "metavision/hal/utils/hal_connection_exception.h"
 
 namespace Metavision {
 
@@ -36,10 +37,6 @@ class DmaBufHeap {
     std::string heap_;
     int heap_fd_;
     std::unordered_set<unsigned int> buffers_fd_;
-
-    void raise_error(const std::string &str) const {
-        throw std::runtime_error(str + " (" + std::to_string(errno) + " - " + strerror(errno) + ")");
-    }
 
     std::unordered_set<std::string> get_heap_list(const std::string &heap) {
         std::unordered_set<std::string> heap_list;
@@ -60,8 +57,9 @@ class DmaBufHeap {
 
     int open_heap(const std::string &heap) {
         int fd = TEMP_FAILURE_RETRY(open(heap.c_str(), O_RDONLY | O_CLOEXEC));
-        if (fd < 0)
-            raise_error(heap + " Failed to open the heap.");
+        if (fd < 0) {
+            throw HalConnectionException(errno, std::generic_category(), heap + " Failed to open the heap.");
+        }
         return fd;
     }
 
@@ -101,8 +99,8 @@ public:
 
         auto ret = TEMP_FAILURE_RETRY(ioctl(heap_fd_, DMA_HEAP_IOCTL_ALLOC, &heap_data));
         if (ret < 0) {
-            // raise_error(heap_ + " Failed to allocate a buffer of " + std::to_string(len) +
-            //            " bytes from: " + std::to_string(heap_fd_));
+            // throw HalConnectionException(errno, std::generic_category(), heap_ +
+            // " Failed to allocate a buffer of " + std::to_string(len) + " bytes from: " + std::to_string(heap_fd_));
         } else
             buffers_fd_.insert(heap_data.fd);
 

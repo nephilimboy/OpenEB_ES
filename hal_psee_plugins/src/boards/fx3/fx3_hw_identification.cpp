@@ -64,7 +64,7 @@ std::vector<std::string> Fx3HWIdentification::get_available_data_encoding_format
 }
 
 std::string Fx3HWIdentification::get_current_data_encoding_format() const {
-    return dev_ctrl_->get_evt_format().name();
+    return dev_ctrl_->get_evt_format().to_string();
 }
 
 Metavision::I_HW_Identification::SensorInfo Fx3HWIdentification::get_sensor_info() const {
@@ -107,9 +107,7 @@ Metavision::I_HW_Identification::SystemInfo Fx3HWIdentification::get_system_info
 }
 
 Metavision::RawFileHeader Fx3HWIdentification::get_header_impl() const {
-    const StreamFormat &format = dev_ctrl_->get_evt_format();
-    PseeRawFileHeader header(*this, format);
-    return header;
+    return PseeRawFileHeader(*this);
 }
 
 DeviceConfigOptionMap Fx3HWIdentification::get_device_config_options_impl() const {

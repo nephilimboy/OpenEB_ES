@@ -2,6 +2,7 @@
 #include "metavision/hal/facilities/i_plugin_software_info.h"
 #include "boards/v4l2/v4l2_device.h"
 #include "metavision/psee_hw_layer/utils/psee_format.h"
+#include "metavision/psee_hw_layer/boards/rawfile/psee_raw_file_header.h"
 #include <fcntl.h>
 
 namespace Metavision {
@@ -20,63 +21,22 @@ I_HW_Identification::SensorInfo V4l2HwIdentification::get_sensor_info() const {
     } else if (ent_name.find("genx320") == 0) {
         return {320, 0, "GenX320"};
     } else {
-        raise_error("Unknown sensor");
+        return {0, 0, "Unknown sensor"};
     }
 }
 
 std::vector<std::string> V4l2HwIdentification::get_available_data_encoding_formats() const {
-    // @TODO Retrieve those info through V4L2
-    auto format = get_current_data_encoding_format();
-    auto pos = format.find(";");
-    if (pos != std::string::npos) {
-        auto evt_type = format.substr(0, pos);
-        return {evt_type};
-    }
-    return {};
+    StreamFormat format(get_current_data_encoding_format());
+    return {format.name()};
 }
 
 std::string V4l2HwIdentification::get_current_data_encoding_format() const {
-    struct v4l2_format fmt {
-        .type = V4L2_BUF_TYPE_VIDEO_CAPTURE
-    };
-
-    if (ioctl(ctrl_->get_video_entity()->fd, VIDIOC_G_FMT, &fmt))
-        raise_error("VIDIOC_G_FMT failed");
-
-    switch (fmt.fmt.pix.pixelformat) {
-    case v4l2_fourcc('P', 'S', 'E', 'E'): {
-        StreamFormat format("EVT2");
-        format["width"]                    = std::to_string(fmt.fmt.pix.width);
-        format["height"]                   = std::to_string(fmt.fmt.pix.height);
-        return format.to_string();
-    }
-    case v4l2_fourcc('P', 'S', 'E', '1'): {
-        StreamFormat format("EVT21");
-        format["endianness"]               = "legacy";
-        format["width"]                    = std::to_string(fmt.fmt.pix.width);
-        format["height"]                   = std::to_string(fmt.fmt.pix.height);
-        return format.to_string();
-    }
-    case v4l2_fourcc('P', 'S', 'E', '2'): {
-        StreamFormat format("EVT21");
-        format["width"]                    = std::to_string(fmt.fmt.pix.width);
-        format["height"]                   = std::to_string(fmt.fmt.pix.height);
-        return format.to_string();
-    }
-    case v4l2_fourcc('P', 'S', 'E', '3'): {
-        StreamFormat format("EVT3");
-        format["width"]                    = std::to_string(fmt.fmt.pix.width);
-        format["height"]                   = std::to_string(fmt.fmt.pix.height);
-        return format.to_string();
-    }
-    default:
-        throw std::runtime_error("Unsupported pixel format");
-    }
+    return ctrl_->get_format().to_string();
 }
 
 std::string V4l2HwIdentification::get_serial() const {
     std::stringstream ss;
-    ss << ctrl_->get_capability().card;
+    ss << ctrl_->get_sensor_entity()->desc.name;
     return ss.str();
 }
 std::string V4l2HwIdentification::get_integrator() const {
@@ -91,6 +51,10 @@ std::string V4l2HwIdentification::get_connection_type() const {
 }
 
 DeviceConfigOptionMap V4l2HwIdentification::get_device_config_options_impl() const {
-    return {};
+    return {{"ll_biases_range_check_bypass", DeviceConfigOption(true)}};
 }
+
+RawFileHeader V4l2HwIdentification::get_header_impl() const {
+    return PseeRawFileHeader(*this);
 }
+} // namespace Metavision

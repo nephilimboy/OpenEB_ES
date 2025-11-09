@@ -23,20 +23,13 @@
 #include "boards/v4l2/v4l2_data_transfer.h"
 
 #include "metavision/hal/device/device_discovery.h"
-#include "metavision/hal/facilities/i_camera_synchronization.h"
-#include "metavision/hal/facilities/i_decoder.h"
-#include "metavision/hal/facilities/i_events_stream.h"
-#include "metavision/hal/facilities/i_hw_identification.h"
-#include "metavision/hal/facilities/i_plugin_software_info.h"
 #include "metavision/hal/plugin/plugin_entrypoint.h"
-#include "metavision/hal/utils/camera_discovery.h"
 #include "metavision/hal/utils/device_builder.h"
 #include "metavision/hal/utils/hal_log.h"
 #include "metavision/psee_hw_layer/utils/psee_format.h"
 #include "metavision/psee_hw_layer/boards/v4l2/v4l2_board_command.h"
 #include <filesystem>
 
-#include "utils/make_decoder.h"
 
 namespace Metavision {
 
@@ -52,6 +45,7 @@ V4l2CameraDiscovery::V4l2CameraDiscovery() {
             }
         }
     }
+    MV_HAL_LOG_TRACE() << "V4l2Discovery: found " << devices_.size() << " devices.";
 }
 
 bool V4l2CameraDiscovery::is_for_local_camera() const {
@@ -76,24 +70,25 @@ CameraDiscovery::SystemList V4l2CameraDiscovery::list_available_sources() {
 
 bool V4l2CameraDiscovery::discover(DeviceBuilder &device_builder, const std::string &serial,
                                    const DeviceConfig &config) {
-    MV_HAL_LOG_TRACE() << "V4l2Discovery - Discovering...";
-
     if (devices_.empty()) {
         return false;
     }
 
-    auto &main_device = devices_[0];
+    size_t n_devices  = devices_.size();
+    size_t dev_select = 0;
+
+    for (size_t i = 0; i < n_devices; ++i) {
+        if (devices_[i]->get_serial() == serial) {
+            dev_select = i;
+        }
+    }
 
     auto res = false;
     try {
-        res = builder->build_device(main_device, device_builder, config);
+        res = builder->build_device(devices_[dev_select], device_builder, config);
     } catch (std::exception &e) { MV_HAL_LOG_ERROR() << "Failed to build streaming facilities :" << e.what(); }
 
-    if (res) {
-        MV_HAL_LOG_TRACE() << "V4l2 Discovery with great success +1";
-    } else {
-        MV_HAL_LOG_TRACE() << "V4l2 Discovery failed with horrible failure -1";
-    }
+    MV_HAL_LOG_TRACE() << "V4l2Discovery " << (res ? "success with serial: " : "failure for serial: ") << serial;
     return res;
 }
 

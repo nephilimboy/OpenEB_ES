@@ -18,6 +18,7 @@
 
 #include "metavision/psee_hw_layer/devices/v4l2/v4l2_ll_biases.h"
 #include "metavision/psee_hw_layer/devices/v4l2/v4l2_erc.h"
+#include "metavision/psee_hw_layer/devices/v4l2/v4l2_sync.h"
 #include "metavision/psee_hw_layer/devices/v4l2/v4l2_roi_interface.h"
 #include "metavision/psee_hw_layer/devices/v4l2/v4l2_crop.h"
 
@@ -52,14 +53,22 @@ bool V4L2DeviceBuilder::build_device(std::shared_ptr<BoardCommand> cmd, DeviceBu
 
     auto controls = ctrl->get_controls();
 
+    auto daim = hw_identification->get_device_config_options();
+    for (const auto &[key, option] : daim) {
+        MV_HAL_LOG_DEBUG() << "HW id Device config option: " << key << " = " << option;
+    }
+
     if (controls->has("bias")) {
-        MV_HAL_LOG_TRACE() << "Found BIAS controls\n";
-        auto sensor_info = hw_identification->get_sensor_info();
-        bool relative    = false;
-        if (sensor_info.name_ == "IMX636") {
-            relative = true;
-        }
-        device_builder.add_facility(std::make_unique<V4L2LLBiases>(config, controls, relative));
+        MV_HAL_LOG_TRACE() << "Found BIAS controls";
+        DeviceConfig myconfig = config;
+        myconfig.enable_biases_range_check_bypass(true);
+        device_builder.add_facility(std::make_unique<V4L2LLBiases>(myconfig, hw_identification, controls));
+    }
+
+    if (controls->has("sync"))
+    {
+        MV_HAL_LOG_TRACE() << "Found SYNC controls";
+        device_builder.add_facility(std::make_unique<V4l2Synchronization>(controls));
     }
 
     if (controls->has("erc")) {

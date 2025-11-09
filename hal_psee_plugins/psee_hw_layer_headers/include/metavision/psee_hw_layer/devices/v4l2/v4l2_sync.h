@@ -9,47 +9,28 @@
  * See the License for the specific language governing permissions and limitations under the License.                 *
  **********************************************************************************************************************/
 
-#ifndef METAVISION_HAL_PSEE_RAW_FILE_HEADER_H
-#define METAVISION_HAL_PSEE_RAW_FILE_HEADER_H
+#ifndef METAVISION_HAL_V4L2_SYNC_H
+#define METAVISION_HAL_V4L2_SYNC_H
 
-#include <memory>
-#include <cstdint>
-#include <fstream>
 #include <string>
+#include <map>
 
-#include "metavision/hal/facilities/i_hw_identification.h"
-#include "metavision/hal/facilities/i_geometry.h"
-#include "metavision/hal/utils/raw_file_header.h"
+#include "metavision/hal/facilities/i_camera_synchronization.h"
+#include "metavision/psee_hw_layer/boards/v4l2/v4l2_controls.h"
 
 namespace Metavision {
 
-class StreamFormat;
-
-/// @brief Convenient class to handle Prophesee RAW files header
-class PseeRawFileHeader : public RawFileHeader {
+class V4l2Synchronization : public I_CameraSynchronization {
 public:
-    explicit PseeRawFileHeader(const I_HW_Identification &hw);
-    PseeRawFileHeader(std::istream &);
-    PseeRawFileHeader(const HeaderMap &);
-    PseeRawFileHeader(const RawFileHeader &);
-
-    std::string get_serial() const;
-
-    // This isn't part of standard I_HW_Identification
-    void set_system_id(long system_id);
-    long get_system_id() const;
-    void set_sub_system_id(long);
-    long get_sub_system_id() const;
-
-    I_HW_Identification::SensorInfo get_sensor_info() const;
-
-    StreamFormat get_format() const;
-
+    V4l2Synchronization(std::shared_ptr<V4L2Controls> controls);
+    virtual bool set_mode_standalone() override;
+    virtual bool set_mode_master() override;
+    virtual bool set_mode_slave() override;
+    virtual SyncMode get_mode() const override;
 private:
-    void check_header();
-    void set_sensor_info(const I_HW_Identification::SensorInfo &);
+    std::shared_ptr<V4L2Controls> controls_;
 };
 
 } // namespace Metavision
 
-#endif // METAVISION_HAL_PSEE_RAW_FILE_HEADER_H
+#endif // METAVISION_HAL_V4L2_SYNC_H

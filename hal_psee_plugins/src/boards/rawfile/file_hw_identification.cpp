@@ -41,7 +41,7 @@ std::vector<std::string> FileHWIdentification::get_available_data_encoding_forma
 }
 
 std::string FileHWIdentification::get_current_data_encoding_format() const {
-    return raw_header_.get_format().name();
+    return raw_header_.get_format().to_string();
 }
 
 std::string FileHWIdentification::get_integrator() const {

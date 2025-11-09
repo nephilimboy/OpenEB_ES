@@ -29,28 +29,31 @@ namespace Metavision {
 
 namespace {
 
-static const std::string format_key           = "format";
-static const std::string geometry_key         = "geometry";
-static const std::string sensor_gen_key       = "sensor_generation";
-static const std::string sensor_name_key      = "sensor_name";
-static const std::string system_id_key        = "system_ID";
-static const std::string subsystem_id_key     = "subsystem_ID";
-static const std::string firmware_version_key = "firmware_version";
-static const std::string serial_number_key    = "serial_number";
-static const std::string endianness_key       = "endianness";
+constexpr char format_key[]           = "format";
+constexpr char geometry_key[]         = "geometry";
+constexpr char sensor_gen_key[]       = "generation";
+constexpr char sensor_name_key[]      = "sensor_name";
+constexpr char system_id_key[]        = "system_ID";
+constexpr char subsystem_id_key[]     = "subsystem_ID";
+constexpr char firmware_version_key[] = "firmware_version";
+constexpr char serial_number_key[]    = "serial_number";
+constexpr char endianness_key[]       = "endianness";
 
-static const std::string subsystem_id_key_legacy = "sub_system_ID";
-static const std::string legacy_events_type_key  = "evt";
-static const std::string legacy_evt3_value       = "3.0";
-static const std::string legacy_evt2_value       = "2.0";
-static const std::string legacy_evt21_value      = "2.1";
+constexpr char subsystem_id_key_legacy[] = "sub_system_ID";
+constexpr char legacy_events_type_key[]  = "evt";
+constexpr char legacy_evt3_value[]       = "3.0";
+constexpr char legacy_evt2_value[]       = "2.0";
+constexpr char legacy_evt21_value[]      = "2.1";
+constexpr char legacy_sensor_gen_key[]   = "sensor_generation";
 
 } // anonymous namespace
 
-PseeRawFileHeader::PseeRawFileHeader(const I_HW_Identification &hw, const StreamFormat &format) {
-    set_serial(hw.get_serial());
+PseeRawFileHeader::PseeRawFileHeader(const I_HW_Identification &hw) {
+    // This is redundant with SDK EventFileWriter, but it still needed
+    // if HAL is used directly
+    set_field(serial_number_key, hw.get_serial());
     set_sensor_info(hw.get_sensor_info());
-    set_format(format);
+    set_field(format_key, hw.get_current_data_encoding_format());
 }
 
 PseeRawFileHeader::PseeRawFileHeader(std::istream &stream) : RawFileHeader(stream) {
@@ -61,10 +64,6 @@ PseeRawFileHeader::PseeRawFileHeader(const HeaderMap &header) : RawFileHeader(he
 }
 PseeRawFileHeader::PseeRawFileHeader(const RawFileHeader &raw_header) :
     PseeRawFileHeader(raw_header.get_header_map()) {}
-
-void PseeRawFileHeader::set_serial(std::string serial) {
-    set_field(serial_number_key, serial);
-}
 
 std::string PseeRawFileHeader::get_serial() const {
     return get_field(serial_number_key);
@@ -109,6 +108,9 @@ void PseeRawFileHeader::set_sensor_info(const I_HW_Identification::SensorInfo &s
 
 I_HW_Identification::SensorInfo PseeRawFileHeader::get_sensor_info() const {
     std::string generation_str = get_field(sensor_gen_key);
+    if (generation_str.empty()) {
+        generation_str = get_field(legacy_sensor_gen_key);
+    }
     I_HW_Identification::SensorInfo sensor_info("");
 
     try {
@@ -134,27 +136,6 @@ I_HW_Identification::SensorInfo PseeRawFileHeader::get_sensor_info() const {
         }
     }
     return sensor_info;
-}
-
-void PseeRawFileHeader::set_format(const StreamFormat &format) {
-    set_field(format_key, format.to_string());
-    // Keep previous field version for old readers
-    // Event type
-    if (format.name() == "EVT2") {
-        set_field(legacy_events_type_key, legacy_evt2_value);
-    } else if (format.name() == "EVT3") {
-        set_field(legacy_events_type_key, legacy_evt3_value);
-    } else if (format.name() == "EVT21") {
-        if (format.contains("endianness")) {
-            set_field(endianness_key, format["endianness"]);
-        } else {
-            set_field(endianness_key, "little");
-        }
-    }
-    // Geometry
-    if (format.contains("width") && format.contains("height")) {
-        set_field(geometry_key, format["width"] + "x" + format["height"]);
-    }
 }
 
 StreamFormat PseeRawFileHeader::get_format() const {
@@ -331,7 +312,7 @@ void PseeRawFileHeader::check_header() {
     }
 
     // Then save everything in the header
-    set_format(format);
+    set_field(format_key, format.to_string());
 }
 
 } // namespace Metavision

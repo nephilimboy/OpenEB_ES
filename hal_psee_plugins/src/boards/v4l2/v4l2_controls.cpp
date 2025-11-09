@@ -27,8 +27,12 @@ std::optional<int> V4L2Controls::V4L2Control::get_int(void) {
         return {};
     }
 
+    refresh();
+
     switch(query_.type) {
         case V4L2_CTRL_TYPE_INTEGER:
+        case V4L2_CTRL_TYPE_MENU:
+        case V4L2_CTRL_TYPE_INTEGER_MENU:
             return std::optional<int>(static_cast<int>(ctrl.value));
         default:
             return {};
@@ -39,6 +43,8 @@ std::optional<int64_t> V4L2Controls::V4L2Control::get_int64(void) {
     if (query_.flags & V4L2_CTRL_FLAG_WRITE_ONLY) {
         return {};
     }
+
+    refresh();
 
     switch(query_.type) {
         case V4L2_CTRL_TYPE_INTEGER:
@@ -55,6 +61,8 @@ std::optional<bool> V4L2Controls::V4L2Control::get_bool(void) {
         return {};
     }
 
+    refresh();
+
     switch(query_.type) {
         case V4L2_CTRL_TYPE_BOOLEAN:
             return std::optional<bool>(static_cast<bool>(ctrl.value));
@@ -68,12 +76,54 @@ std::optional<std::string> V4L2Controls::V4L2Control::get_str(void) {
         return {};
     }
 
+    refresh();
+    
     switch(query_.type) {
         case V4L2_CTRL_TYPE_STRING:
             return std::string(ctrl.string);
+        case V4L2_CTRL_TYPE_MENU: {
+            struct v4l2_querymenu qmenu = {};
+            qmenu.id = query_.id;
+            qmenu.index = ctrl.value;  // current selected index
+
+            if (ioctl(fd_, VIDIOC_QUERYMENU, &qmenu) == 0) {
+                return std::string(reinterpret_cast<char *>(qmenu.name));
+            } else {
+                perror("VIDIOC_QUERYMENU failed");
+                return {};
+            }
+        }
         default:
             return {};
     }
+}
+
+int V4L2Controls::V4L2Control::set_menu(int value) {
+    // guard: ensure it's a menu type control
+    if (query_.type != V4L2_CTRL_TYPE_MENU && query_.type != V4L2_CTRL_TYPE_INTEGER_MENU)
+        return -EINVAL;
+
+    // guard: check for write-only flag
+    if (query_.flags & V4L2_CTRL_FLAG_WRITE_ONLY)
+        return -EPERM;
+
+    // check value is within menu index range
+    if (value < query_.minimum || value > query_.maximum)
+        return -EINVAL;
+
+    // optional: check if menu index is skipped (driver may report which indices are valid using VIDIOC_QUERYMENU)
+    struct v4l2_querymenu qm = {};
+    qm.id = query_.id;
+    qm.index = value;
+
+    if (ioctl(fd_, VIDIOC_QUERYMENU, &qm) == -1)
+        return -EINVAL;  // invalid/unsupported menu index
+
+    // set control value
+    ctrl.value = value;
+
+    apply();
+    return 0;
 }
 
 int V4L2Controls::V4L2Control::set_int(int value) {

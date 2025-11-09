@@ -10,10 +10,9 @@
  **********************************************************************************************************************/
 
 #include "metavision/psee_hw_layer/devices/v4l2/v4l2_roi_interface.h"
+#include "metavision/hal/facilities/i_geometry.h"
 
 namespace Metavision {
-
-void raise_error(const std::string &str);
 
 V4L2RoiInterface::V4L2RoiInterface(std::shared_ptr<V4L2DeviceControl> device) : device_(device), enabled_(false) {
     auto controls = device_->get_controls();
@@ -24,11 +23,11 @@ V4L2RoiInterface::V4L2RoiInterface(std::shared_ptr<V4L2DeviceControl> device) : 
 }
 
 int V4L2RoiInterface::device_width() const {
-    return device_->get_width();
+    return device_->get_format().geometry()->get_width();
 }
 
 int V4L2RoiInterface::device_height() const {
-    return device_->get_height();
+    return device_->get_format().geometry()->get_height();
 }
 
 bool V4L2RoiInterface::enable(bool state) {
@@ -67,7 +66,7 @@ size_t V4L2RoiInterface::get_max_supported_windows_count() const {
 }
 
 bool V4L2RoiInterface::set_lines(const std::vector<bool> &cols, const std::vector<bool> &rows) {
-    throw std::runtime_error("V4L2RoiInterface::set_lines() not implemented");
+    return false;
 }
 
 struct roi {
@@ -126,7 +125,6 @@ std::vector<I_ROI::Window> V4L2RoiInterface::get_windows() const {
 }
 
 bool V4L2RoiInterface::get_lines(std::vector<bool> &cols, std::vector<bool> &rows) const {
-    raise_error("V4L2RoiInterface::get_lines() not implemented");
     return false;
 }
 

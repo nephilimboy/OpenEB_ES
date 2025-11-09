@@ -10,14 +10,28 @@
  **********************************************************************************************************************/
 
 #include <cassert>
+#include <cmath>
 #include "metavision/hal/utils/detail/hal_log_impl.h"
 #include "metavision/psee_hw_layer/devices/v4l2/v4l2_ll_biases.h"
 #include "metavision/psee_hw_layer/boards/v4l2/v4l2_controls.h"
 
 namespace Metavision {
 
-V4L2LLBiases::V4L2LLBiases(const DeviceConfig &device_config, std::shared_ptr<V4L2Controls> controls, bool relative) :
-    I_LL_Biases(device_config), controls_(controls), relative_(relative) {
+V4L2LLBiases::V4L2LLBiases(const DeviceConfig &device_config, const std::shared_ptr<I_HW_Identification> &hw_identification, std::shared_ptr<V4L2Controls> controls, bool relative) :
+    I_LL_Biases(device_config), hw_identification_(hw_identification), controls_(controls) { 
+    auto sensor_info = hw_identification->get_sensor_info();
+    if (sensor_info.name_ == "IMX636") {
+        relative_ = true;
+	    bias_bitwidth_ = 8;
+    } else {
+        relative_ = false;
+	    bias_bitwidth_ = 7;
+    }
+
+    MV_HAL_LOG_TRACE() << "V4L2 Biases - Sensor info: " << sensor_info.name_;
+    MV_HAL_LOG_TRACE() << "V4L2 Biases - Relative   : " << relative_;
+    MV_HAL_LOG_TRACE() << "V4L2 Biases - Bit Width  : " << pow(2, bias_bitwidth_) - 1;
+
     // reset all biases to default values
     controls_->foreach ([&](V4L2Controls::V4L2Control &ctrl) {
         auto name = std::string(ctrl.query_.name);
@@ -62,8 +76,10 @@ int V4L2LLBiases::get_impl(const std::string &bias_name) const {
 
 bool V4L2LLBiases::get_bias_info_impl(const std::string &bias_name, LL_Bias_Info &bias_info) const {
     auto ctrl = controls_->get(bias_name);
-    bias_info = LL_Bias_Info(0, 127, ctrl.query_.minimum, ctrl.query_.maximum, std::string("todo::description"), true,
-                             std::string("todo::category"));
+    int offset = relative_ ? ctrl.query_.default_value : 0;
+    bias_info = LL_Bias_Info(0 - offset, pow(2, bias_bitwidth_) - 1 - offset, 
+                             ctrl.query_.minimum - offset, ctrl.query_.maximum - offset, 
+                             std::string("todo::description"), true, std::string("todo::category"));
 
     return true;
 }
@@ -71,14 +87,24 @@ bool V4L2LLBiases::get_bias_info_impl(const std::string &bias_name, LL_Bias_Info
 std::map<std::string, int> V4L2LLBiases::get_all_biases() const {
     std::map<std::string, int> biases;
 
-    controls_->foreach ([&biases](V4L2Controls::V4L2Control &ctrl) {
+    controls_->foreach ([&biases, this](V4L2Controls::V4L2Control &ctrl) {
         auto name = std::string(ctrl.query_.name);
         // skip non bias controls
         if (name.find("bias_") != 0) {
             return 0;
         }
 
-        biases[ctrl.query_.name] = ctrl.get_int().value_or(0xFFFFFFFF);
+        auto maybe_val = ctrl.get_int();
+        if (!maybe_val.has_value()) {
+            return 0;
+        }
+
+        if (relative_) {
+            biases[ctrl.query_.name] = *maybe_val - ctrl.query_.default_value;
+        } else {
+            biases[ctrl.query_.name] = *maybe_val;
+        }
+
         return 0;
     });
 

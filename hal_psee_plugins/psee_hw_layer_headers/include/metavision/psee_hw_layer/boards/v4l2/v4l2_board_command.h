@@ -61,6 +61,7 @@ private:
     std::mutex tz_control_mutex_;
     std::string manufacturer;
     std::string product;
+    std::string serial;
     time_t build_date;
     uint32_t version;
     int sensor_fd_;

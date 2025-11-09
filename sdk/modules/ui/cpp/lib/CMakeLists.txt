@@ -42,25 +42,30 @@ if(USE_OPENGL_ES3)
     if(NOT TARGET OpenGL::GLES3)
         ## Previous to cmake 3.27, OpenGL ES targets were not supported...
         ## Let's search for it
-        find_library(GLES3_lib GLESv2) # GLES3 is a superset of GLES2 hence the GLESv2 library
+        find_library(GLESv2_lib GLESv2)
         find_file(GLES3_header gl3.h PATH_SUFFIXES GLES3)
         get_filename_component(GLES3_header_dir ${GLES3_header} DIRECTORY)
-        if(GLES_lib MATCHES "NOTFOUND")
-            message(NOTICE "The required OpenGL ES3 library is not found")
-            return()
-        endif() 
-        if(GLES3_header MATCHES "NOTFOUND")
-            message(NOTICE "Could not found OpenGL ES3 headers")
+
+        if(GLESv2_lib MATCHES "NOTFOUND")
+            message(NOTICE "The required OpenGL ES2/3 library (libGLESv2) is not found")
             return()
         endif()
-        add_library(GLES3 UNKNOWN IMPORTED GLOBAL) 
-        set_target_properties(GLES3 PROPERTIES 
-            IMPORTED_LOCATION ${GLES3_lib}
+
+        if(GLES3_header MATCHES "NOTFOUND")
+            message(NOTICE "Could not find OpenGL ES3 headers (gl3.h)")
+            return()
+        endif()
+
+        add_library(GLESv2 UNKNOWN IMPORTED GLOBAL)
+        set_target_properties(GLESv2 PROPERTIES 
+            IMPORTED_LOCATION ${GLESv2_lib}
             INTERFACE_INCLUDE_DIRECTORIES ${GLES3_header_dir}
         )
-        add_library(OpenGL::GLES3 ALIAS GLES3)
-    endif()
 
+        # Provide a meaningful alias to indicate ES3 use, but still use GLESv2 library (as does GLES3)
+        add_library(OpenGL::GLES3 ALIAS GLESv2)
+    endif()
+    
     target_link_libraries(metavision_sdk_ui PUBLIC OpenGL::GLES3)
 else()
     target_link_libraries(metavision_sdk_ui 
@@ -69,5 +74,3 @@ else()
             GLEW::GLEW
     )
 endif(USE_OPENGL_ES3)
-
-

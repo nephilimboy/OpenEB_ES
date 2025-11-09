@@ -15,8 +15,6 @@
 
 namespace Metavision {
 
-void raise_error(const std::string &str);
-
 V4L2Crop::V4L2Crop(std::shared_ptr<V4L2DeviceControl> device) : device_(device), enabled_(false) {
     // set default crop to native size
     device_->get_native_size(device_->get_sensor_entity()->fd, rect_);
@@ -48,7 +46,6 @@ bool V4L2Crop::is_enabled() const {
 }
 
 bool V4L2Crop::set_mode(const Mode &mode) {
-    raise_error("V4L2Crop::set_mode() not supported by device");
     return false;
 }
 
@@ -61,7 +58,7 @@ size_t V4L2Crop::get_max_supported_windows_count() const {
 }
 
 bool V4L2Crop::set_lines(const std::vector<bool> &cols, const std::vector<bool> &rows) {
-    throw std::runtime_error("V4L2Crop::set_lines() not implemented");
+    return false;
 }
 
 bool V4L2Crop::set_windows_impl(const std::vector<Window> &windows) {
@@ -98,7 +95,7 @@ std::vector<I_ROI::Window> V4L2Crop::get_windows() const {
 }
 
 bool V4L2Crop::get_lines(std::vector<bool> &cols, std::vector<bool> &rows) const {
-    throw std::runtime_error("V4L2Crop::set_lines() not implemented");
+    return false;
 }
 
 } // namespace Metavision

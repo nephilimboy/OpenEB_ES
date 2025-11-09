@@ -59,7 +59,13 @@ bool V4l2DataTransfer::DmabufAllocator::do_is_equal(const std::pmr::memory_resou
 }
 
 void V4l2DataTransfer::DmabufAllocator::fill_v4l2_buffer(void *vaddr, V4l2Buffer &buf) const {
-    buf.m.fd = fd(vaddr);
+    if (buf.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+        buf.m.planes[0].m.fd = fd(vaddr);
+    } else if (buf.type == V4L2_BUF_TYPE_VIDEO_CAPTURE) {
+        buf.m.fd = fd(vaddr);
+    } else {
+        throw HalConnectionException(ENOTSUP, std::generic_category());
+    }
 }
 
 void V4l2DataTransfer::DmabufAllocator::begin_cpu_access(void *vaddr) const {

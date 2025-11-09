@@ -61,7 +61,7 @@ std::vector<std::string> TzHWIdentification::get_available_data_encoding_formats
 }
 
 std::string TzHWIdentification::get_current_data_encoding_format() const {
-    return devices_[0]->get_output_format().name();
+    return devices_[0]->get_output_format().to_string();
 }
 
 std::string TzHWIdentification::get_integrator() const {
@@ -96,9 +96,7 @@ std::string TzHWIdentification::get_connection_type() const {
 }
 
 RawFileHeader TzHWIdentification::get_header_impl() const {
-    auto format = devices_[0]->get_output_format();
-    PseeRawFileHeader header(*this, format);
-    return header;
+    return PseeRawFileHeader(*this);
 }
 
 DeviceConfigOptionMap TzHWIdentification::get_device_config_options_impl() const {

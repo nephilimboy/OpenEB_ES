@@ -31,6 +31,7 @@ class V4L2Controls {
         std::optional<bool> get_bool(void);
         std::optional<std::string> get_str(void);
 
+        [[nodiscard]] int set_menu(int value);
         [[nodiscard]] int set_int(int value);
         [[nodiscard]] int set_int64(std::int64_t value);
         [[nodiscard]] int set_bool(bool value);

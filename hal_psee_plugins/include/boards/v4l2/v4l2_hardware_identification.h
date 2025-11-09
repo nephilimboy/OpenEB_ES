@@ -21,5 +21,8 @@ public:
 
 protected:
     virtual DeviceConfigOptionMap get_device_config_options_impl() const override;
+
+private:
+    RawFileHeader get_header_impl() const override;
 };
-}
+} // namespace Metavision

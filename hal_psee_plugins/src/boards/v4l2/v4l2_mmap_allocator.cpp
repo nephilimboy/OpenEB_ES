@@ -31,6 +31,7 @@ V4l2DataTransfer::V4l2MmapAllocator::~V4l2MmapAllocator() {
 void *V4l2DataTransfer::V4l2MmapAllocator::do_allocate(std::size_t bytes, std::size_t alignment) {
     void *vaddr;
     int buffer_index;
+    uint32_t length, offset;
 
     if (bytes > max_byte_size())
         throw std::length_error("Trying to expand allocation beyond V4L2 buffer length");
@@ -44,15 +45,29 @@ void *V4l2DataTransfer::V4l2MmapAllocator::do_allocate(std::size_t bytes, std::s
 
     // Query buffer information
     V4l2Buffer buffer{};
-    buffer.type   = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    struct v4l2_plane plane;
+    buffer.type   = get_buf_type();
     buffer.memory = V4L2_MEMORY_MMAP;
     buffer.index  = buffer_index;
+    if (buffer.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+        buffer.length   = 1;
+        buffer.m.planes = &plane;
+    }
 
     if (ioctl(fd_, VIDIOC_QUERYBUF, &buffer) < 0)
         throw std::system_error(errno, std::generic_category(), "Could not query V4L2 buffer");
 
+    if (buffer.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+        length = buffer.m.planes[0].length;
+        offset = buffer.m.planes[0].m.mem_offset;
+    } else {
+        // Assuming V4L2_BUF_TYPE_VIDEO_CAPTURE
+        length = buffer.length;
+        offset = buffer.m.offset;
+    }
+
     // Map it in the program memory
-    vaddr = mmap(NULL, buffer.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd_, buffer.m.offset);
+    vaddr = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, fd_, offset);
     if (vaddr == MAP_FAILED)
         throw std::system_error(errno, std::generic_category(), "Could not mmap V4L2 buffer");
 

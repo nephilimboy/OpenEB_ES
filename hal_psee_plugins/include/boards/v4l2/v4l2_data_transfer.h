@@ -14,6 +14,7 @@
 
 #include "metavision/hal/utils/data_transfer.h"
 #include "metavision/sdk/base/utils/object_pool.h"
+#include "metavision/psee_hw_layer/utils/psee_format.h"
 
 #include <cstddef>
 #include <map>
@@ -26,16 +27,17 @@
 namespace Metavision {
 using V4l2Buffer         = struct v4l2_buffer;
 using V4l2RequestBuffers = struct v4l2_requestbuffers;
+using V4l2BufType        = enum v4l2_buf_type;
 
 class DmaBufHeap;
 
 class V4l2DataTransfer : public DataTransfer::RawDataProducer {
 public:
     // Constructor using MMAP buffers
-    V4l2DataTransfer(int fd, uint32_t raw_event_size_bytes);
+    V4l2DataTransfer(int fd, const StreamFormat& format, uint32_t raw_event_size_bytes);
 
     // Constructor using DMABUF buffers
-    V4l2DataTransfer(int fd, uint32_t raw_event_size_bytes, const std::string &heap_path, const std::string &heap_name);
+    V4l2DataTransfer(int fd, const StreamFormat& format, uint32_t raw_event_size_bytes, const std::string &heap_path, const std::string &heap_name);
 
     ~V4l2DataTransfer();
 
@@ -46,7 +48,9 @@ private:
     const enum v4l2_memory memtype_;
 
     const int fd_;
-
+    V4l2BufType buf_type_;
+    int infer_manual_buf_size;
+    
     V4l2RequestBuffers request_buffers(uint32_t nb_buffers);
 
     void start_impl() override final;
@@ -55,9 +59,11 @@ private:
 
     class V4l2Allocator : public std::pmr::memory_resource {
         size_t buffer_byte_size_{0};
+        V4l2BufType buf_type_;
 
     protected:
         V4l2Allocator(int videodev_fd);
+        V4l2BufType get_buf_type() const;
 
     public:
         size_t max_byte_size() const noexcept {

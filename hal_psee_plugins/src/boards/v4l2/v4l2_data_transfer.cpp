@@ -30,7 +30,7 @@ namespace Metavision {
 static constexpr bool allow_buffer_drop              = true;
 static constexpr size_t device_buffer_preload_number = 4;
 
-V4l2DataTransfer::V4l2DataTransfer(int fd, uint32_t raw_event_size_bytes) :
+V4l2DataTransfer::V4l2DataTransfer(int fd, const StreamFormat& format, uint32_t raw_event_size_bytes) :
     memtype_(V4L2_MEMORY_MMAP),
     fd_(dup(fd)),
     v4l2_allocator_(std::make_unique<V4l2MmapAllocator>(fd)),
@@ -38,9 +38,16 @@ V4l2DataTransfer::V4l2DataTransfer(int fd, uint32_t raw_event_size_bytes) :
     auto res = request_buffers(device_buffer_number);
     if (res.count != device_buffer_number)
         throw std::system_error(ENOMEM, std::generic_category(), "Unexpected amount of V4L2 buffers allocated");
+    if(auto env = std::getenv("PSEE_VAR_V4L2_BSIZE"))
+    {
+        if(format.name() == "EVT3")
+            infer_manual_buf_size = 3;
+        else
+            infer_manual_buf_size = 2; // Default to 2 for EVT2 and EVT21
+    }
 }
 
-V4l2DataTransfer::V4l2DataTransfer(int fd, uint32_t raw_event_size_bytes, const std::string &heap_path,
+V4l2DataTransfer::V4l2DataTransfer(int fd, const StreamFormat& format, uint32_t raw_event_size_bytes, const std::string &heap_path,
                                    const std::string &heap_name) :
     memtype_(V4L2_MEMORY_DMABUF),
     fd_(dup(fd)),
@@ -49,25 +56,46 @@ V4l2DataTransfer::V4l2DataTransfer(int fd, uint32_t raw_event_size_bytes, const 
     auto res = request_buffers(device_buffer_number);
     if (res.count != device_buffer_number)
         throw std::system_error(ENOMEM, std::generic_category(), "Unexpected amount of V4L2 buffers allocated");
+    if(auto env = std::getenv("PSEE_VAR_V4L2_BSIZE"))
+    {
+        if(format.name() == "EVT3")
+            infer_manual_buf_size = 3;
+        else
+            infer_manual_buf_size = 2; // Default to 2 for EVT2 and EVT21
+    }
 }
 
 V4l2DataTransfer::~V4l2DataTransfer() {
     // Release the previously acquired buffers
-    request_buffers(0);
+    try {
+        request_buffers(0);
+    } catch (const std::exception &e) { MV_HAL_LOG_TRACE() << "~V4l2DataTransfer:" << e.what(); }
     // and release this file handler
     close(fd_);
 }
 
 V4l2RequestBuffers V4l2DataTransfer::request_buffers(uint32_t nb_buffers) {
-    V4l2RequestBuffers req{0};
-    req.count  = nb_buffers;
-    req.type   = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    struct v4l2_capability cap = {0};
+    V4l2RequestBuffers req{.count = nb_buffers};
+
+    if (ioctl(fd_, VIDIOC_QUERYCAP, &cap)) {
+        throw HalConnectionException(errno, std::generic_category(), "VIDIOC_QUERYCAP failed");
+    }
+
+    if (cap.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) {
+        req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    } else if (cap.capabilities & V4L2_CAP_VIDEO_CAPTURE) {
+        req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    } else {
+        throw HalConnectionException(ENOTSUP, std::generic_category());
+    }
     req.memory = memtype_;
 
     if (-1 == ioctl(fd_, VIDIOC_REQBUFS, &req)) {
         throw std::system_error(errno, std::generic_category(), "VIDIOC_REQBUFS failed");
     }
 
+    buf_type_ = (enum v4l2_buf_type)req.type;
     return req;
 }
 
@@ -81,12 +109,17 @@ void V4l2DataTransfer::start_impl() {
     // Since 2 queued buffers are usually enough, and we have 32 of them, queuing 4 should avoid issues with hardware
     // expecting more, while allowing 28 buffers in parallel (or in a 28-stage pipeline) in the app.
     for (unsigned int i = 0; i < device_buffer_preload_number; ++i) {
-        auto input_buff = pool_.acquire();
+        struct v4l2_plane plane = {0};
+        auto input_buff         = pool_.acquire();
         // Using DMABUF, the allocator handles the pool of buffers through file descriptors, we need to choose a free
         // index to queue a buffer.
         // On the other hand, with MMAP, the pool is handled through indices, and fill_v4l2_buffer will fix the index
         // in the V4l2Buffer descriptor.
-        V4l2Buffer buffer = {.index = i, .type = V4L2_BUF_TYPE_VIDEO_CAPTURE, .memory = memtype_};
+        V4l2Buffer buffer = {.index = i, .type = buf_type_, .memory = memtype_};
+        if (buffer.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+            buffer.length   = 1;
+            buffer.m.planes = &plane;
+        }
         fill_v4l2_buffer(input_buff, buffer);
 
         // Update buffer size to its capacity so that it may only be downsized after transfer
@@ -112,6 +145,8 @@ void V4l2DataTransfer::run_impl(const DataTransfer &data_transfer) {
 
     while (!data_transfer.should_stop()) {
         V4l2Buffer buf{0};
+        struct v4l2_plane plane;
+        uint32_t bytesused;
 
         if (poll(fds, 1, -1) < 0) {
             MV_HAL_LOG_ERROR() << "V4l2DataTransfer: poll failed" << strerror(errno);
@@ -119,28 +154,71 @@ void V4l2DataTransfer::run_impl(const DataTransfer &data_transfer) {
         }
 
         if (fds[0].revents & POLLERR) {
+            using namespace std::chrono_literals;
             // When stopping, STREAMOFF ioctl will return all buffers and epoll will signal an error, since there is no
             // queued buffer anymore. This will usually trig faster than calling DataTransfer::stop, and should_stop()
             // will still return false, even though I_EventStream is stopping.
-            // Stop polling and wait for DataTransfer to call stop_impl before cleaning
+            // But this may also happen at start. Wait a bit and retry until should_stop()
             MV_HAL_LOG_TRACE() << "V4l2DataTransfer: poll returned" << std::hex << fds[0].revents << std::dec;
-            break;
+            std::this_thread::sleep_for(1ms);
+            continue;
         }
 
-        buf.type   = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.type   = buf_type_;
         buf.memory = memtype_;
+        if (buf.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+            buf.length   = 1;
+            buf.m.planes = &plane;
+        }
         if (ioctl(fd_, VIDIOC_DQBUF, &buf) < 0) {
             MV_HAL_LOG_ERROR() << "V4l2DataTransfer: DQBUF failed" << strerror(errno);
             break;
         }
 
-        MV_HAL_LOG_DEBUG() << "Grabbed buffer" << buf.index << "of:" << buf.bytesused << "Bytes.";
+        if (buf.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+            bytesused = buf.m.planes[0].bytesused;
+        } else {
+            bytesused = buf.bytesused;
+        }
+        MV_HAL_LOG_DEBUG() << "Grabbed buffer" << buf.index << "of:" << bytesused << "Bytes.";
 
         // Advertise CPU operations to allow cache maintenance
         begin_cpu_access(queued_buffers_[buf.index]);
 
-        // Get the vector corresponding to this buffer and transfer the data
-        queued_buffers_[buf.index]->resize(buf.bytesused);
+        if(infer_manual_buf_size > 0)
+        {
+            size_t new_size = buf.bytesused; // default: keep full size
+            if(infer_manual_buf_size == 3) {
+                // 16 bit (for evt3)
+                uint16_t* buffer = reinterpret_cast<uint16_t*>(queued_buffers_[buf.index]->data());
+                size_t new_size_16 = new_size / sizeof(uint16_t);
+                for (size_t i = 0; i < new_size_16; ++i) {
+                    if (buffer[i] == 0xE019) {
+                        //MV_HAL_LOG_TRACE() << "Found eof marker at index" << i*sizeof(uint16_t);
+                        new_size = i*sizeof(uint16_t); // keep up to this pattern
+                        break;
+                    }
+                }
+            }
+            else //if(infer_manual_buf_size == 2 || infer_manual_buf_size == 21) 
+            {
+                // 64 bit for evt2 and evt21
+                uint64_t* buffer = reinterpret_cast<uint64_t*>(queued_buffers_[buf.index]->data());
+                size_t new_size_64 = new_size / sizeof(uint64_t);
+                for (size_t i = 0; i < new_size_64; ++i) {
+                    if ((buffer[i] & 0xE00000FF00000000) == 0xE000001900000000) {
+                        //MV_HAL_LOG_TRACE() << "Found eof marker at index" << i*sizeof(uint64_t);
+                        new_size = i*sizeof(uint64_t); // keep up to this pattern
+                        break;
+                    }
+                }
+            } 
+            queued_buffers_[buf.index]->resize(new_size);
+        }
+        else {
+            // Get the vector corresponding to this buffer and transfer the data
+            queued_buffers_[buf.index]->resize(bytesused);
+        }
 
         // Transfer the data for processing
         // if there is no more available buffer and buffer drop is allowed,
@@ -221,16 +299,35 @@ void V4l2DataTransfer::end_cpu_access(BufferPtr &buf) const {
 }
 
 V4l2DataTransfer::V4l2Allocator::V4l2Allocator(int videodev_fd) {
-    struct v4l2_format format {
-        .type = V4L2_BUF_TYPE_VIDEO_CAPTURE
-    };
+    struct v4l2_capability cap = {0};
 
+    if (ioctl(videodev_fd, VIDIOC_QUERYCAP, &cap)) {
+        throw HalConnectionException(errno, std::generic_category(), "VIDIOC_QUERYCAP failed");
+    }
+
+    if (cap.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) {
+        buf_type_ = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    } else if (cap.capabilities & V4L2_CAP_VIDEO_CAPTURE) {
+        buf_type_ = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    } else {
+        throw HalConnectionException(ENOTSUP, std::generic_category());
+    }
+
+    struct v4l2_format format = {.type = buf_type_};
     // Technically, the format is not locked yet, it will be locked when V4l2DataTransfer constructor does
     // request_buffers, but we need to build the BufferPool with an Allocator first
     if (ioctl(videodev_fd, VIDIOC_G_FMT, &format))
         throw std::system_error(errno, std::generic_category(), "VIDIOC_G_FMT failed");
 
-    buffer_byte_size_ = format.fmt.pix.sizeimage;
+    if (buf_type_ == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+        buffer_byte_size_ = format.fmt.pix_mp.plane_fmt[0].sizeimage;
+    } else {
+        buffer_byte_size_ = format.fmt.pix.sizeimage;
+    }
+}
+
+V4l2BufType V4l2DataTransfer::V4l2Allocator::get_buf_type() const {
+    return buf_type_;
 }
 
 } // namespace Metavision
