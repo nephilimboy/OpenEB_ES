@@ -1,0 +1,50 @@
+    1  sudo raspi-config
+    2  sudo apt install -y libgles2-mesa-dev
+    3  free- h
+    4  free -h
+    5  sudo raspi-config
+    6  eglinfo | grep "OpenGL ES"
+    7  sudo apt install eglinfo
+    8  sudo apt install -y mesa-utils-extra
+    9  eglinfo | grep "OpenGL ES"
+   10  ls
+   11  sudo apt -y install apt-utils build-essential software-properties-common wget unzip curl git cmake
+   12  sudo apt -y install apt-utils build-essential  wget unzip curl git cmake
+   13  sudo vcgencmd get_config dtoverlay
+   14  grep dtoverlay /boot/config.txt
+   15  grep dtoverlay /boot/firmware/config.txt
+   16  sudo apt -y install libopencv-dev libboost-all-dev libusb-1.0-0-dev libprotobuf-dev protobuf-compiler
+   17  sudo apt install libhdf5-dev hdf5-tools libcanberra-gtk-module ffmpeg
+   18  sudo apt install libhdf5-dev hdf5-tools  ffmpeg
+   19  clear
+   20  git clone https://github.com/prophesee-ai/openeb.git
+   21  ls
+   22  cd openeb/
+   23  sudo apt install -y python3-pybind11 pybind11-dev
+   24  mkdir build && cd build
+   25  cmake .. -DBUILD_TESTING=OF
+   26  pip3 install pytest
+   27  cd ..
+   28  pip3 install pytest
+   29  pip3 install pytest --break-system-packages
+   30  cd openeb/build/
+   31  cmake .. -DBUILD_TESTING=OF
+   32  cmake .. -DBUILD_TESTING=OFF
+   33  cmake .. -DBUILD_TESTING=OFF -DUSE_OPENGL_ES3=ON
+   34  cmake .. -DBUILD_TESTING=OFF -DUSE_OPENGL_ES3=ON -DUSE_GLFW=OFF
+   35  nano ../sdk/modules/ui/cpp/lib/CMakeLists.txt
+   36  cmake .. -DBUILD_TESTING=OFF -DUSE_OPENGL_ES3=ON -DUSE_GLFW=OFF
+   37  sudo apt install libglfw3-dev
+   38  cmake .. -DBUILD_TESTING=OFF -DUSE_OPENGL_ES3=ON -DUSE_GLFW=OFF
+   39  make -j$(nproc)
+   40  nano ../sdk/modules/ui/cpp/include/metavision/sdk/ui/utils/opengl_api.h
+   41  make -j$(nproc)
+   42  nano ../sdk/modules/ui/cpp/include/metavision/sdk/ui/utils/opengl_api.h
+   43  make -j$(nproc)
+   44  cd ..
+   45  cp hal_psee_plugins/resources/rules/*.rules /etc/udev/rules.d
+   46  sudo cp hal_psee_plugins/resources/rules/*.rules /etc/udev/rules.d
+   47  sudo udevadm control --reload-rules
+   48  sudo udevadm trigger
+   49  ifconfig
+   50  history > command.txt
