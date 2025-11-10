@@ -9,7 +9,8 @@
 
 # OpenGL
 set(OpenGL_GL_PREFERENCE GLVND)
-find_package(OpenGL REQUIRED)
+#find_package(OpenGL REQUIRED)
+find_package(OpenGLES3 REQUIRED)
 
 # GLEW
 #find_package(GLEW REQUIRED)
