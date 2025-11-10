@@ -9,7 +9,7 @@
 
 # OpenGL
 #set(OpenGL_GL_PREFERENCE GLVND)
-find_package(OpenGL REQUIRED COMPONENTS GLES2)
+#find_package(OpenGL REQUIRED COMPONENTS GLES2)
 
 # GLEW
 #find_package(GLEW REQUIRED)
