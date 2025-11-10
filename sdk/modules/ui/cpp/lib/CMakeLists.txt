@@ -8,8 +8,8 @@
 # See the License for the specific language governing permissions and limitations under the License.
 
 # OpenGL
-#set(OpenGL_GL_PREFERENCE GLVND)
-#find_package(OpenGL REQUIRED COMPONENTS GLES2)
+set(OpenGL_GL_PREFERENCE GLVND)
+find_package(OpenGL REQUIRED COMPONENTS GLES2)
 
 # GLEW
 #find_package(GLEW REQUIRED)
