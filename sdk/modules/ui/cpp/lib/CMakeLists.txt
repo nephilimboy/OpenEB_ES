@@ -8,9 +8,8 @@
 # See the License for the specific language governing permissions and limitations under the License.
 
 # OpenGL
-set(OpenGL_GL_PREFERENCE GLVND)
+#set(OpenGL_GL_PREFERENCE GLVND)
 #find_package(OpenGL REQUIRED)
-find_package(OpenGLES2 REQUIRED)
 
 # GLEW
 #find_package(GLEW REQUIRED)
